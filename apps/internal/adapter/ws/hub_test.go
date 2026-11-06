@@ -255,7 +255,7 @@ func TestHubStreamsTradeAndTicker(t *testing.T) {
 	conn := f.dial(t, "")
 
 	subscribe(t, conn, []string{ChannelMarketTicker, ChannelMarketTrade}, "BMRI", "")
-	readMessage(t, conn) // initial ticker
+	readMessage(t, conn)
 
 	now := time.Now().UTC()
 	trade := domain.Trade{
@@ -363,7 +363,7 @@ func TestHubRefreshesOrderBookAfterOrder(t *testing.T) {
 	conn := f.dial(t, "")
 
 	subscribe(t, conn, []string{ChannelMarketOrderBook}, "BMRI", "")
-	readMessage(t, conn) // initial depth
+	readMessage(t, conn)
 
 	ask := newOrder(f.stock, "user-2", domain.OrderStatusNew)
 	ask.Side = domain.OrderSideSell

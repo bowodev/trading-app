@@ -104,8 +104,7 @@ func addOrderToBook(book domain.OrderBook, order *domain.Order) error {
 	return nil
 }
 
-// Apply mutates a clone of the book and stores it only when every change
-// succeeds, so readers never observe a partially applied match.
+// Apply mutates a clone and stores it only when every change succeeds.
 func (r *orderBookRepo) Apply(stock domain.Stock, change port.OrderBookChange) error {
 	if stock.ID == (ulid.ULID{}) {
 		return ErrInvalidData
@@ -193,8 +192,7 @@ func removeOrderFromLevels(levels map[string][]domain.Order, orderId ulid.ULID) 
 	return false
 }
 
-// Update replaces an existing order and re-inserts it into the correct price
-// level, so price or side changes are reflected in the book.
+// Update re-inserts the order at its price level.
 func (r *orderBookRepo) Update(order *domain.Order) error {
 	if order == nil || !isValidSide(order.Side) {
 		return ErrInvalidData
@@ -244,8 +242,7 @@ func (r *orderBookRepo) BestAsks(stockId ulid.ULID, limit int) ([]domain.Order, 
 	return bestOrders(book.Asks, limit, false), nil
 }
 
-// Snapshot reads bids and asks under one read lock so callers cannot observe a
-// half-applied match between the two sides.
+// Snapshot reads both sides under one lock so readers never see a half-applied match.
 func (r *orderBookRepo) Snapshot(stockId ulid.ULID, depth int) ([]domain.Order, []domain.Order, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

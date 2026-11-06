@@ -7,9 +7,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// TickerRecorder keeps market data in sync with executed trades and publishes
-// a ticker event after each one. It sits between the order flow and the event
-// fan-out so REST snapshots and WebSocket tickers see the same numbers.
+// TickerRecorder syncs market data from trades so REST and WS see the same numbers.
 type TickerRecorder struct {
 	marketData port.IMarketDataRepository
 	next       port.IEventPublisher

@@ -99,8 +99,7 @@ func main() {
 type logPublisher struct{}
 
 func (logPublisher) Publish(event port.Event) error {
-	// Tickers are high-volume and already visible through the snapshot API.
-	// Keep the log focused on order and trade events.
+	// Skip tickers; they are high-volume and already visible via the snapshot API.
 	if _, isTicker := event.(port.MarketTickerEvent); isTicker {
 		return nil
 	}
@@ -126,9 +125,8 @@ func (p fanoutPublisher) Publish(event port.Event) error {
 func allowedOrigins() []string {
 	raw := strings.TrimSpace(os.Getenv("WS_ALLOWED_ORIGINS"))
 	if raw == "" {
-		// Desktop clients such as Bruno and Postman send their own Origin
-		// header. The test build has no auth boundary, so accept any origin
-		// unless the operator restricts it explicitly.
+		// Bruno and Postman send their own Origin; this build has no auth boundary,
+		// so any origin is allowed unless the operator restricts it.
 		return []string{"*"}
 	}
 

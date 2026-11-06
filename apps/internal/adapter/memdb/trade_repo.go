@@ -34,10 +34,8 @@ func (r *tradeRepo) Save(t *domain.Trade) error {
 	return nil
 }
 
-// List returns trades sorted from newest to oldest. Cursor is the ID of the
-// last trade from the previous page; the zero ULID starts at the first page.
-// Next is the ID of the last returned trade when there are more rows,
-// otherwise the zero ULID.
+// List returns newest-first; cursor is the previous page's last ID and next is
+// the last returned ID when more rows remain.
 func (r *tradeRepo) List(filterType, filterValue string, cursor ulid.ULID, limit int) ([]domain.Trade, ulid.ULID, error) {
 	if err := validateTradeFilter(filterType); err != nil {
 		return nil, ulid.ULID{}, err

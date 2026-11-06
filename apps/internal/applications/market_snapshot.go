@@ -116,8 +116,7 @@ func aggregateLevels(orders []domain.Order) []OrderBookLevelView {
 	return levels
 }
 
-// OrderBook returns the current aggregated depth for a stock. It is cheaper
-// than Execute and is used for live order book refreshes.
+// OrderBook is the cheaper read used for live depth refreshes.
 func (uc *MarketSnapshot) OrderBook(stockCode string) (OrderBookView, error) {
 	if stockCode == "" {
 		return OrderBookView{}, ErrInvalidArgument

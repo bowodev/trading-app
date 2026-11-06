@@ -17,8 +17,7 @@ const defaultQueueSize = 64
 
 var ErrClosed = errors.New("matching engine is closed")
 
-// MatchHandler runs in the engine goroutine after a submitted order has been
-// matched and applied to the book. It must not call Submit, Match or Close.
+// MatchHandler runs in the engine goroutine and must not call Submit, Match or Close.
 type MatchHandler func(order domain.Order, result port.MatchResult, err error)
 
 type Engine struct {
@@ -56,9 +55,7 @@ func New(books port.IOrderBookRepository) *Engine {
 	return engine
 }
 
-// Submit enqueues an order and returns without waiting for the match. When the
-// queue is full, Submit blocks until the engine drains a slot. The callback is
-// invoked with the match result, or with the match/commit error.
+// Submit blocks when the queue is full; the callback receives the result or error.
 func (e *Engine) Submit(order domain.Order, onMatched MatchHandler) error {
 	if err := validateOrder(order); err != nil {
 		return err
@@ -79,8 +76,7 @@ func (e *Engine) Submit(order domain.Order, onMatched MatchHandler) error {
 	return nil
 }
 
-// Match is the synchronous path used by PlaceOrder. It waits for the engine to
-// match and apply the book change before returning.
+// Match waits until the book change is applied before returning.
 func (e *Engine) Match(order domain.Order) (port.MatchResult, error) {
 	if err := validateOrder(order); err != nil {
 		return port.MatchResult{}, err
@@ -103,8 +99,7 @@ func (e *Engine) Match(order domain.Order) (port.MatchResult, error) {
 	return result.result, result.err
 }
 
-// Close stops accepting new work, drains queued requests, and waits for the
-// engine goroutine to exit. It is safe to call Close more than once.
+// Close is idempotent and waits for the engine goroutine to exit.
 func (e *Engine) Close() {
 	e.stopOnce.Do(func() {
 		e.stateMu.Lock()
@@ -251,9 +246,7 @@ func (e *Engine) commit(order domain.Order, result port.MatchResult) error {
 		change.Upserts = append(change.Upserts, incoming)
 	}
 
-	// Apply commits removes and upserts as one book replacement. A failure
-	// leaves the previous book intact, so readers never see a half-matched
-	// book and the engine can report the error to the caller.
+	// Apply replaces the book in one step, so readers never see a half-matched state.
 	return e.books.Apply(order.Stock, change)
 }
 

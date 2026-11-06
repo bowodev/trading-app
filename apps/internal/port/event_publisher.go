@@ -9,8 +9,7 @@ type Event interface {
 	EventName() string
 }
 
-// OrderPlacedEvent reports a newly accepted order. It is delivered on the
-// order.update channel together with OrderUpdatedEvent.
+// OrderPlacedEvent is delivered on order.update.
 type OrderPlacedEvent struct {
 	Order domain.Order
 }
@@ -19,8 +18,7 @@ func (OrderPlacedEvent) EventName() string {
 	return "order.update"
 }
 
-// OrderUpdatedEvent reports a status or quantity change for an order that was
-// already known to the system, such as a resting order hit by a match.
+// OrderUpdatedEvent reports a status or quantity change on order.update.
 type OrderUpdatedEvent struct {
 	Order domain.Order
 }
@@ -37,8 +35,7 @@ func (TradeExecutedEvent) EventName() string {
 	return "market.trade"
 }
 
-// MarketTickerEvent carries the last price and cumulative volume for a stock
-// after a trade.
+// MarketTickerEvent carries last price and cumulative volume.
 type MarketTickerEvent struct {
 	StockCode string
 	Last      decimal.Decimal
@@ -50,8 +47,7 @@ func (MarketTickerEvent) EventName() string {
 	return "market.ticker"
 }
 
-// Publish is best-effort: callers do not roll back completed work when a
-// publish fails.
+// Publish is best-effort; callers do not roll back completed work on failure.
 type IEventPublisher interface {
 	Publish(event Event) error
 }

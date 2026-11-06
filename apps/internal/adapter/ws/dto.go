@@ -9,8 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Realtime channels. The channel name doubles as the message type so clients
-// can route frames without a second lookup.
+// The channel name doubles as the message type.
 const (
 	ChannelMarketTicker    = "market.ticker"
 	ChannelMarketTrade     = "market.trade"
@@ -18,7 +17,7 @@ const (
 	ChannelOrderUpdate     = "order.update"
 )
 
-// Message is the envelope sent to WebSocket clients.
+// Message is the envelope sent to clients.
 type Message struct {
 	Type      string `json:"type"`
 	StockCode string `json:"stockCode,omitempty"`
@@ -26,7 +25,7 @@ type Message struct {
 	Message   string `json:"message,omitempty"`
 }
 
-// clientCommand is the envelope clients send for subscribe/unsubscribe/ping.
+// clientCommand is the envelope sent by clients.
 type clientCommand struct {
 	Type      string   `json:"type"`
 	Channel   string   `json:"channel,omitempty"`

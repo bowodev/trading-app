@@ -56,8 +56,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
-// Handle registers an additional route, such as the WebSocket endpoint, on the
-// same mux. Call it before the server starts serving.
+// Handle registers extra routes; call it before serving.
 func (s *Server) Handle(pattern string, handler http.Handler) {
 	s.mux.Handle(pattern, handler)
 }
@@ -184,9 +183,8 @@ func (s *Server) handleMarketSnapshot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// userID resolves the caller identity from the header first, then from an
-// optional request field. The API has no auth layer yet. An empty identity
-// means "no user filter" for order and trade listing.
+// userID prefers the header over the request field; an empty value means no filter.
+// There is no auth layer yet.
 func userID(r *http.Request, fallback string) string {
 	if id := strings.TrimSpace(r.Header.Get("X-User-ID")); id != "" {
 		return id
@@ -195,10 +193,7 @@ func userID(r *http.Request, fallback string) string {
 	return strings.TrimSpace(fallback)
 }
 
-// placeOrderUserID keeps the minimal create-order payload working: an
-// anonymous caller becomes a distinct, listable principal instead of a 400.
-// A unique suffix avoids accidental self-trade prevention when the same
-// unauthenticated client submits both sides.
+// placeOrderUserID gives anonymous callers a unique identity so both sides can match.
 func placeOrderUserID(r *http.Request, fallback string) string {
 	if id := userID(r, fallback); id != "" {
 		return id

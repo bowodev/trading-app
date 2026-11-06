@@ -12,15 +12,13 @@ import (
 )
 
 const (
-	// DefaultPriceSimInterval is how often simulated prices move when no
-	// trade arrives.
+	// DefaultPriceSimInterval is the default price-walk interval.
 	DefaultPriceSimInterval = 3 * time.Second
 	// DefaultPriceVolatilityBps caps one simulated move at 0.40%.
 	DefaultPriceVolatilityBps = 40
 )
 
-// defaultBasePrices gives seeded stocks a realistic starting point. Unknown
-// codes fall back to 1000.
+// defaultBasePrices seeds known codes; unknown codes start at 1000.
 var defaultBasePrices = map[string]string{
 	"BMRI": "6000",
 	"BBCA": "9000",
@@ -28,9 +26,8 @@ var defaultBasePrices = map[string]string{
 	"TLKM": "3000",
 }
 
-// PriceSimulator periodically applies a small random walk to the last price
-// and publishes a market.ticker event. Trades still overwrite the last price,
-// so simulated and real (matching-engine) prices share one source of truth.
+// PriceSimulator periodically moves last price and publishes market.ticker.
+// Trades overwrite the simulated price.
 type PriceSimulator struct {
 	marketData port.IMarketDataRepository
 	publisher  port.IEventPublisher
@@ -77,8 +74,7 @@ func NewPriceSimulator(
 	}
 }
 
-// Seed writes a starting last price and previous close for every configured
-// stock. It also repairs market data that was saved without a previous close.
+// Seed writes a starting price and repairs a missing previous close.
 func (s *PriceSimulator) Seed() error {
 	now := time.Now().UTC()
 
@@ -122,8 +118,7 @@ func (s *PriceSimulator) Seed() error {
 	return nil
 }
 
-// Start launches the periodic simulation goroutine. It is safe to call more
-// than once.
+// Start is safe to call more than once.
 func (s *PriceSimulator) Start() {
 	s.mu.Lock()
 	if s.started || s.closed {
@@ -171,8 +166,7 @@ func (s *PriceSimulator) loop() {
 	}
 }
 
-// step moves every stock once and publishes a ticker per stock. It runs only
-// from the simulator goroutine, so the random source needs no extra lock.
+// step runs only from the simulator goroutine, so the random source is unshared.
 func (s *PriceSimulator) step() {
 	now := time.Now().UTC()
 

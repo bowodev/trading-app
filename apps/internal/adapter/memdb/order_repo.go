@@ -62,10 +62,8 @@ func (r *orderRepo) Update(o *domain.Order) error {
 	return nil
 }
 
-// List returns orders sorted from newest to oldest. Cursor is the ID of the
-// last order from the previous page; the zero ULID starts at the first page.
-// Next is the ID of the last returned order when there are more rows,
-// otherwise the zero ULID.
+// List returns newest-first; cursor is the previous page's last ID and next is
+// the last returned ID when more rows remain.
 func (r *orderRepo) List(filter port.OrderFilter, cursor ulid.ULID, limit int) ([]domain.Order, ulid.ULID, error) {
 	if filter.Status != "" && !isValidOrderStatus(filter.Status) {
 		return nil, ulid.ULID{}, ErrInvalidArgument

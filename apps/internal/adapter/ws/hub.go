@@ -30,10 +30,7 @@ var knownChannels = map[string]struct{}{
 	ChannelOrderUpdate:     {},
 }
 
-// Hub serves the realtime WebSocket endpoint. Clients start with no
-// subscriptions and send subscribe/unsubscribe commands for named channels.
-// Hub is also an IEventPublisher, so the same events that feed the REST flow
-// can be streamed without extra plumbing.
+// Hub serves the realtime WebSocket endpoint and implements port.IEventPublisher.
 type Hub struct {
 	snapshots     *applications.MarketSnapshot
 	acceptOptions *websocket.AcceptOptions
@@ -57,8 +54,7 @@ func NewHub(snapshots *applications.MarketSnapshot, originPatterns []string) *Hu
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, h.acceptOptions)
 	if err != nil {
-		// A rejected Origin is the usual cause of a failed desktop-client
-		// handshake, so make it visible instead of returning silently.
+		// Log the rejection: a mismatched Origin is the usual cause.
 		log.Printf("websocket accept: %v", err)
 		return
 	}
@@ -189,8 +185,7 @@ func (h *Hub) handleUnsubscribe(c *client, cmd clientCommand) {
 }
 
 func (h *Hub) sendInitial(c *client, channel string, filter stockFilter) {
-	// An empty stock filter means "every stock"; there is no cheap way to
-	// enumerate them, so those clients only receive live events.
+	// No stock filter means every stock; those clients only get live events.
 	if filter.all {
 		return
 	}
@@ -216,15 +211,14 @@ func (h *Hub) sendInitial(c *client, channel string, filter stockFilter) {
 	}
 }
 
-// Publish implements port.IEventPublisher. Unknown events are ignored.
+// Unknown events are ignored.
 func (h *Hub) Publish(event port.Event) error {
 	switch e := event.(type) {
 	case port.OrderPlacedEvent:
 		if err := h.publishOrderUpdate(e.Order); err != nil {
 			return err
 		}
-		// A matched order leaves no extra book change beyond the one the
-		// trade events already broadcast.
+		// A fully matched order adds no level; trade events already refresh the book.
 		if e.Order.Status == domain.OrderStatusNew {
 			h.publishOrderBook(e.Order.Stock.Code)
 		}
@@ -246,8 +240,7 @@ func (h *Hub) publishOrderUpdate(order domain.Order) error {
 	return h.broadcast(newOrderUpdateMessage(order), order.Stock.Code, order.UserID)
 }
 
-// publishOrderBook refreshes the aggregated depth after any change to the
-// book. The book was already committed before the event was published.
+// publishOrderBook broadcasts depth after the book has been committed.
 func (h *Hub) publishOrderBook(stockCode string) {
 	view, err := h.snapshots.OrderBook(stockCode)
 	if err != nil {
@@ -279,9 +272,8 @@ func (h *Hub) broadcast(message Message, stockCode, userID string) error {
 	}
 	h.mu.RUnlock()
 
-	// Detach outside the publisher path so a stuck client cannot delay an
-	// order placement. Removal is synchronous so a burst of events cannot
-	// spawn an unbounded number of cleanup goroutines.
+	// Remove outside the publish loop so a stuck client cannot delay orders.
+	// Removal is synchronous, so an event burst cannot spawn cleanup goroutines.
 	for _, c := range slow {
 		h.remove(c)
 	}
@@ -289,8 +281,7 @@ func (h *Hub) broadcast(message Message, stockCode, userID string) error {
 	return nil
 }
 
-// Close disconnects every client. The HTTP server does not own hijacked
-// WebSocket connections, so this must be called during shutdown.
+// Close disconnects every client; the HTTP server does not own hijacked conns.
 func (h *Hub) Close() {
 	h.mu.Lock()
 	if h.closed {
@@ -310,8 +301,7 @@ func (h *Hub) Close() {
 		c.close()
 	}
 
-	// Every connection handler owns a read loop and a write loop. Waiting
-	// here makes shutdown deterministic and proves no client goroutine leaks.
+	// Wait for every connection handler so shutdown leaves no goroutine behind.
 	h.wg.Wait()
 }
 
@@ -412,8 +402,7 @@ func (c *client) unsubscribe(channel string, filter stockFilter) error {
 	return nil
 }
 
-// wants reports whether this client asked for the given channel and stock.
-// Order updates are additionally scoped to the client's user.
+// wants also scopes order.update to the client's user.
 func (c *client) wants(channel, stockCode, userID string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -465,8 +454,7 @@ func (c *client) writeLoop() {
 	}
 }
 
-// close skips the close handshake: a stuck peer must never block the event
-// publisher or server shutdown.
+// close skips the handshake so a stuck peer cannot block publishing or shutdown.
 func (c *client) close() {
 	c.closeOnce.Do(func() {
 		close(c.done)
@@ -537,8 +525,7 @@ func parseStockFilter(raw string) stockFilter {
 	return filter
 }
 
-// allows reports whether an event for stockCode should reach a filter. An
-// empty filter subscribes to every stock.
+// allows matches every stock when the filter is empty.
 func (f stockFilter) allows(stockCode string) bool {
 	if f.all {
 		return true

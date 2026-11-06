@@ -20,8 +20,7 @@ type fakeEngine struct {
 	match func(order domain.Order) (port.MatchResult, error)
 }
 
-// Match mirrors the real engine contract: the book change is committed before
-// the result is returned to PlaceOrder.
+// Match commits the book change before returning, like the real engine.
 func (f *fakeEngine) Match(order domain.Order) (port.MatchResult, error) {
 	f.calls++
 	f.order = order
