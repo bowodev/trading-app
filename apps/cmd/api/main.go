@@ -126,7 +126,10 @@ func (p fanoutPublisher) Publish(event port.Event) error {
 func allowedOrigins() []string {
 	raw := strings.TrimSpace(os.Getenv("WS_ALLOWED_ORIGINS"))
 	if raw == "" {
-		return nil
+		// Desktop clients such as Bruno and Postman send their own Origin
+		// header. The test build has no auth boundary, so accept any origin
+		// unless the operator restricts it explicitly.
+		return []string{"*"}
 	}
 
 	origins := make([]string, 0)

@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -25,6 +26,12 @@ type hubFixture struct {
 }
 
 func newHubFixture(t *testing.T) *hubFixture {
+	t.Helper()
+
+	return newHubFixtureWithOrigins(t, nil)
+}
+
+func newHubFixtureWithOrigins(t *testing.T, origins []string) *hubFixture {
 	t.Helper()
 
 	stocks := memdb.NewStockRepo()
@@ -64,7 +71,7 @@ func newHubFixture(t *testing.T) *hubFixture {
 	}
 
 	snapshots := applications.NewMarketSnapshot(stocks, books, trades, marketData)
-	hub := NewHub(snapshots, nil)
+	hub := NewHub(snapshots, origins)
 	server := httptest.NewServer(hub)
 
 	t.Cleanup(func() {
@@ -96,6 +103,43 @@ func (f *hubFixture) dial(t *testing.T, query string) *websocket.Conn {
 	})
 
 	return conn
+}
+
+func TestHubOriginPolicy(t *testing.T) {
+	const foreignOrigin = "https://app.bruno.io"
+
+	dialWithOrigin := func(t *testing.T, f *hubFixture) error {
+		t.Helper()
+
+		url := "ws" + strings.TrimPrefix(f.server.URL, "http") + "/"
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{
+			HTTPHeader: http.Header{"Origin": {foreignOrigin}},
+		})
+		if err == nil {
+			t.Cleanup(func() {
+				_ = conn.CloseNow()
+			})
+		}
+
+		return err
+	}
+
+	t.Run("wildcard accepts a desktop client origin", func(t *testing.T) {
+		f := newHubFixtureWithOrigins(t, []string{"*"})
+		if err := dialWithOrigin(t, f); err != nil {
+			t.Fatalf("dial with foreign origin: %v", err)
+		}
+	})
+
+	t.Run("empty patterns reject a foreign origin", func(t *testing.T) {
+		f := newHubFixture(t)
+		if err := dialWithOrigin(t, f); err == nil {
+			t.Fatal("dial with foreign origin succeeded, want rejection")
+		}
+	})
 }
 
 type testMessage struct {

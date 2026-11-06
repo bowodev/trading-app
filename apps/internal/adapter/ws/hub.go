@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -56,6 +57,9 @@ func NewHub(snapshots *applications.MarketSnapshot, originPatterns []string) *Hu
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn, err := websocket.Accept(w, r, h.acceptOptions)
 	if err != nil {
+		// A rejected Origin is the usual cause of a failed desktop-client
+		// handshake, so make it visible instead of returning silently.
+		log.Printf("websocket accept: %v", err)
 		return
 	}
 	conn.SetReadLimit(readLimit)

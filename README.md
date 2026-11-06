@@ -43,7 +43,7 @@ curl http://localhost:8080/healthz
 |---|---|---|
 | `PORT` | `8080` | HTTP/WebSocket port. |
 | `STOCK_CODES` | `BMRI,BBCA,BBRI,TLKM` | Comma-separated stock universe. |
-| `WS_ALLOWED_ORIGINS` | *(empty)* | Comma-separated browser origins allowed by the WebSocket upgrader. Same-origin is always allowed. |
+| `WS_ALLOWED_ORIGINS` | `*` | Comma-separated origin host patterns allowed by the WebSocket upgrader. The default accepts any origin, which keeps desktop clients (Bruno, Postman) working; set an explicit list such as `localhost:3000,app.example.com` to restrict browser access. |
 | `PRICE_SIM_ENABLED` | `true` | Set to `false`, `0`, `no`, or `off` to stop the periodic price walk. Seed prices are still written. |
 | `PRICE_SIM_INTERVAL` | `3s` | How often the simulator moves each price. Any Go duration string. |
 | `PRICE_SIM_VOLATILITY_BPS` | `40` | Maximum simulated move per tick in basis points (`40` = 0.40%). |
@@ -476,6 +476,10 @@ ws://localhost:8080/api/v1/ws
 ```
 
 Optional query parameter: `userId` — default identity for `order.update`.
+
+The default configuration accepts any `Origin`, so desktop clients such as Bruno
+and Postman connect without extra setup. Set `WS_ALLOWED_ORIGINS` to an explicit
+comma-separated host-pattern list to restrict browser access.
 
 There is no implicit subscription. The client sends a command after connecting.
 
