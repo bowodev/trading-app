@@ -17,7 +17,6 @@ const defaultQueueSize = 64
 
 var ErrClosed = errors.New("matching engine is closed")
 
-// MatchHandler runs in the engine goroutine and must not call Submit, Match or Close.
 type MatchHandler func(order domain.Order, result port.MatchResult, err error)
 
 type Engine struct {
