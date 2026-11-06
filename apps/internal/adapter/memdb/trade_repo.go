@@ -34,13 +34,11 @@ func (r *tradeRepo) Save(t *domain.Trade) error {
 	return nil
 }
 
-// List returns trades sorted from newest to oldest. Cursor is a zero-based
-// offset into the filtered result. Next is the ID of the last returned trade
-// when there are more rows, otherwise the zero ULID.
-func (r *tradeRepo) List(filterType, filterValue string, cursor, limit int) ([]domain.Trade, ulid.ULID, error) {
-	if cursor < 0 {
-		return nil, ulid.ULID{}, ErrInvalidArgument
-	}
+// List returns trades sorted from newest to oldest. Cursor is the ID of the
+// last trade from the previous page; the zero ULID starts at the first page.
+// Next is the ID of the last returned trade when there are more rows,
+// otherwise the zero ULID.
+func (r *tradeRepo) List(filterType, filterValue string, cursor ulid.ULID, limit int) ([]domain.Trade, ulid.ULID, error) {
 	if err := validateTradeFilter(filterType); err != nil {
 		return nil, ulid.ULID{}, err
 	}
@@ -61,22 +59,40 @@ func (r *tradeRepo) List(filterType, filterValue string, cursor, limit int) ([]d
 
 	sortTradesDesc(trades)
 
-	if cursor >= len(trades) {
+	start, err := tradeCursorStart(trades, cursor)
+	if err != nil {
+		return nil, ulid.ULID{}, err
+	}
+	if start >= len(trades) {
 		return []domain.Trade{}, ulid.ULID{}, nil
 	}
 
-	end := cursor + limit
+	end := start + limit
 	if end > len(trades) {
 		end = len(trades)
 	}
 
-	result := trades[cursor:end]
+	result := trades[start:end]
 	var next ulid.ULID
 	if end < len(trades) {
 		next = result[len(result)-1].ID
 	}
 
 	return result, next, nil
+}
+
+func tradeCursorStart(trades []domain.Trade, cursor ulid.ULID) (int, error) {
+	if cursor == (ulid.ULID{}) {
+		return 0, nil
+	}
+
+	for i, trade := range trades {
+		if trade.ID == cursor {
+			return i + 1, nil
+		}
+	}
+
+	return 0, ErrInvalidArgument
 }
 
 func (r *tradeRepo) ListByStock(stockCode string, limit int) ([]domain.Trade, error) {

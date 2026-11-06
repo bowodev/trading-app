@@ -1,21 +1,13 @@
 package memdb
 
-type MemdbErr struct {
-	msg string
-}
+import (
+	"fmt"
 
-func (e *MemdbErr) Error() string {
-	return e.msg
-}
-
-func newMemdbErr(e string) *MemdbErr {
-	return &MemdbErr{
-		msg: e,
-	}
-}
+	"github.com/bowodev/trading-backend/apps/internal/port"
+)
 
 var (
-	ErrDataNotFound    = newMemdbErr("data not found")
-	ErrInvalidData     = newMemdbErr("invalid data")
-	ErrInvalidArgument = newMemdbErr("invalid argument")
+	ErrDataNotFound    = fmt.Errorf("%w: data not found", port.ErrNotFound)
+	ErrInvalidData     = fmt.Errorf("%w: invalid data", port.ErrInvalidData)
+	ErrInvalidArgument = fmt.Errorf("%w: invalid argument", port.ErrInvalidArgument)
 )

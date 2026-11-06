@@ -62,15 +62,13 @@ func (r *orderRepo) Update(o *domain.Order) error {
 	return nil
 }
 
-// List returns orders sorted from newest to oldest. Cursor is a zero-based
-// offset into the filtered result. Next is the ID of the last returned order
-// when there are more rows, otherwise the zero ULID.
-func (r *orderRepo) List(filterType, filterValue string, cursor, limit int) ([]domain.Order, ulid.ULID, error) {
-	if cursor < 0 {
+// List returns orders sorted from newest to oldest. Cursor is the ID of the
+// last order from the previous page; the zero ULID starts at the first page.
+// Next is the ID of the last returned order when there are more rows,
+// otherwise the zero ULID.
+func (r *orderRepo) List(filter port.OrderFilter, cursor ulid.ULID, limit int) ([]domain.Order, ulid.ULID, error) {
+	if filter.Status != "" && !isValidOrderStatus(filter.Status) {
 		return nil, ulid.ULID{}, ErrInvalidArgument
-	}
-	if err := validateOrderFilter(filterType); err != nil {
-		return nil, ulid.ULID{}, err
 	}
 	if limit <= 0 {
 		limit = defaultListLimit
@@ -81,7 +79,7 @@ func (r *orderRepo) List(filterType, filterValue string, cursor, limit int) ([]d
 
 	orders := make([]domain.Order, 0, len(r.byID))
 	for _, order := range r.byID {
-		if !matchOrderFilter(order, filterType, filterValue) {
+		if !matchOrderFilter(order, filter) {
 			continue
 		}
 		orders = append(orders, order)
@@ -94,16 +92,20 @@ func (r *orderRepo) List(filterType, filterValue string, cursor, limit int) ([]d
 		return orders[i].CreatedAt.After(orders[j].CreatedAt)
 	})
 
-	if cursor >= len(orders) {
+	start, err := cursorStart(orders, cursor)
+	if err != nil {
+		return nil, ulid.ULID{}, err
+	}
+	if start >= len(orders) {
 		return []domain.Order{}, ulid.ULID{}, nil
 	}
 
-	end := cursor + limit
+	end := start + limit
 	if end > len(orders) {
 		end = len(orders)
 	}
 
-	result := orders[cursor:end]
+	result := orders[start:end]
 	var next ulid.ULID
 	if end < len(orders) {
 		next = result[len(result)-1].ID
@@ -112,26 +114,38 @@ func (r *orderRepo) List(filterType, filterValue string, cursor, limit int) ([]d
 	return result, next, nil
 }
 
-func validateOrderFilter(filterType string) error {
-	switch filterType {
-	case "", "stockCode", "status", "userId", "userID":
-		return nil
-	default:
-		return ErrInvalidArgument
+func cursorStart(orders []domain.Order, cursor ulid.ULID) (int, error) {
+	if cursor == (ulid.ULID{}) {
+		return 0, nil
 	}
+
+	for i, order := range orders {
+		if order.ID == cursor {
+			return i + 1, nil
+		}
+	}
+
+	return 0, ErrInvalidArgument
 }
 
-func matchOrderFilter(o domain.Order, filterType, filterValue string) bool {
-	switch filterType {
-	case "":
+func isValidOrderStatus(status domain.OrderStatusType) bool {
+	switch status {
+	case domain.OrderStatusNew, domain.OrderStatusPartiallyMatched, domain.OrderStatusMatch:
 		return true
-	case "stockCode":
-		return o.Stock.Code == filterValue
-	case "status":
-		return string(o.Status) == filterValue
-	case "userId", "userID":
-		return o.UserID == filterValue
 	default:
 		return false
 	}
+}
+
+func matchOrderFilter(o domain.Order, filter port.OrderFilter) bool {
+	if filter.UserID != "" && o.UserID != filter.UserID {
+		return false
+	}
+	if filter.StockCode != "" && o.Stock.Code != filter.StockCode {
+		return false
+	}
+	if filter.Status != "" && o.Status != filter.Status {
+		return false
+	}
+	return true
 }

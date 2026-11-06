@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/bowodev/trading-backend/apps/internal/domain"
+	"github.com/bowodev/trading-backend/apps/internal/port"
 	"github.com/oklog/ulid/v2"
 	"github.com/shopspring/decimal"
 )
@@ -96,7 +97,7 @@ func TestOrderRepo(t *testing.T) {
 		t.Fatalf("FindByID Qty = %d, want %d", got.Qty, orders[0].Qty)
 	}
 
-	page, next, err := repo.List("stockCode", "BMRI", 0, 2)
+	page, next, err := repo.List(port.OrderFilter{StockCode: "BMRI"}, ulid.ULID{}, 2)
 	if err != nil {
 		t.Fatalf("List page 1: %v", err)
 	}
@@ -110,7 +111,7 @@ func TestOrderRepo(t *testing.T) {
 		t.Fatalf("List page 1 next = %s, want %s", next, orders[1].ID)
 	}
 
-	page, next, err = repo.List("stockCode", "BMRI", 2, 2)
+	page, next, err = repo.List(port.OrderFilter{StockCode: "BMRI"}, next, 2)
 	if err != nil {
 		t.Fatalf("List page 2: %v", err)
 	}
@@ -121,7 +122,7 @@ func TestOrderRepo(t *testing.T) {
 		t.Fatalf("List page 2 next = %s, want zero ULID", next)
 	}
 
-	page, _, err = repo.List("status", "NEW", 0, 10)
+	page, _, err = repo.List(port.OrderFilter{Status: "NEW"}, ulid.ULID{}, 10)
 	if err != nil {
 		t.Fatalf("List by status: %v", err)
 	}
@@ -129,11 +130,19 @@ func TestOrderRepo(t *testing.T) {
 		t.Fatalf("List by status len = %d, want %d", len(page), len(orders))
 	}
 
-	if _, _, err := repo.List("unknown", "", 0, 10); !errors.Is(err, ErrInvalidArgument) {
-		t.Fatalf("List invalid filter err = %v, want ErrInvalidArgument", err)
+	page, _, err = repo.List(port.OrderFilter{StockCode: "BMRI", Status: "NEW"}, ulid.ULID{}, 10)
+	if err != nil {
+		t.Fatalf("List combined filter: %v", err)
 	}
-	if _, _, err := repo.List("", "", -1, 10); !errors.Is(err, ErrInvalidArgument) {
-		t.Fatalf("List negative cursor err = %v, want ErrInvalidArgument", err)
+	if len(page) != 3 {
+		t.Fatalf("List combined filter len = %d, want 3 BMRI NEW orders", len(page))
+	}
+
+	if _, _, err := repo.List(port.OrderFilter{Status: "UNKNOWN"}, ulid.ULID{}, 10); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("List invalid status err = %v, want ErrInvalidArgument", err)
+	}
+	if _, _, err := repo.List(port.OrderFilter{}, ulid.Make(), 10); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("List unknown cursor err = %v, want ErrInvalidArgument", err)
 	}
 
 	orders[0].Status = domain.OrderStatusMatch
@@ -216,7 +225,7 @@ func TestTradeRepo(t *testing.T) {
 		t.Fatalf("ListByStock limit = %+v, want newest trade only", got)
 	}
 
-	page, next, err := repo.List("stockCode", "BMRI", 0, 1)
+	page, next, err := repo.List("stockCode", "BMRI", ulid.ULID{}, 1)
 	if err != nil {
 		t.Fatalf("List page 1: %v", err)
 	}
@@ -227,7 +236,18 @@ func TestTradeRepo(t *testing.T) {
 		t.Fatalf("List page 1 next = %s, want %s", next, trades[1].ID)
 	}
 
-	page, _, err = repo.List("buyOrderId", trades[0].BuyOrder.ID.String(), 0, 10)
+	page, next, err = repo.List("stockCode", "BMRI", next, 1)
+	if err != nil {
+		t.Fatalf("List page 2: %v", err)
+	}
+	if len(page) != 1 || page[0].ID != trades[0].ID {
+		t.Fatalf("List page 2 = %+v, want second trade", page)
+	}
+	if next != (ulid.ULID{}) {
+		t.Fatalf("List page 2 next = %s, want zero ULID", next)
+	}
+
+	page, _, err = repo.List("buyOrderId", trades[0].BuyOrder.ID.String(), ulid.ULID{}, 10)
 	if err != nil {
 		t.Fatalf("List by buy order: %v", err)
 	}
@@ -235,8 +255,11 @@ func TestTradeRepo(t *testing.T) {
 		t.Fatalf("List by buy order = %+v, want first trade", page)
 	}
 
-	if _, _, err := repo.List("unknown", "", 0, 10); !errors.Is(err, ErrInvalidArgument) {
+	if _, _, err := repo.List("unknown", "", ulid.ULID{}, 10); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("List invalid filter err = %v, want ErrInvalidArgument", err)
+	}
+	if _, _, err := repo.List("", "", ulid.Make(), 10); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("List unknown cursor err = %v, want ErrInvalidArgument", err)
 	}
 }
 
@@ -366,6 +389,134 @@ func TestOrderBookRepo(t *testing.T) {
 
 	if err := repo.Update(&domain.Order{ID: ulid.Make(), Stock: stock, Side: domain.OrderSideBuy}); !errors.Is(err, ErrDataNotFound) {
 		t.Fatalf("Update missing err = %v, want ErrDataNotFound", err)
+	}
+}
+
+func TestOrderBookRepoApply(t *testing.T) {
+	repo := NewOrderBookRepo()
+	stock := newStock("BMRI")
+	base := time.Now()
+
+	resting := newOrder(stock, domain.OrderSideSell, "100", 10, base)
+	removed := newOrder(stock, domain.OrderSideSell, "101", 5, base.Add(time.Second))
+	for _, order := range []*domain.Order{&resting, &removed} {
+		if err := repo.Add(order); err != nil {
+			t.Fatalf("Add: %v", err)
+		}
+	}
+
+	updated := resting
+	updated.Qty = 6
+	incoming := newOrder(stock, domain.OrderSideBuy, "100", 4, base.Add(2*time.Second))
+
+	err := repo.Apply(stock, port.OrderBookChange{
+		Upserts: []domain.Order{updated, incoming},
+		Removes: []ulid.ULID{removed.ID},
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	book, err := repo.Get(stock.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(book.Asks["100"]) != 1 || book.Asks["100"][0].Qty != 6 {
+		t.Fatalf("asks[100] = %+v, want single qty 6", book.Asks["100"])
+	}
+	if _, found := book.Asks["101"]; found {
+		t.Fatalf("asks[101] = %+v, want removed", book.Asks["101"])
+	}
+	if len(book.Bids["100"]) != 1 || book.Bids["100"][0].Qty != 4 {
+		t.Fatalf("bids[100] = %+v, want single qty 4", book.Bids["100"])
+	}
+
+	// A failing remove must leave the previous book untouched.
+	err = repo.Apply(stock, port.OrderBookChange{
+		Upserts: []domain.Order{incoming},
+		Removes: []ulid.ULID{ulid.Make()},
+	})
+	if !errors.Is(err, ErrDataNotFound) {
+		t.Fatalf("Apply failing remove err = %v, want ErrDataNotFound", err)
+	}
+
+	book, err = repo.Get(stock.ID)
+	if err != nil {
+		t.Fatalf("Get after failure: %v", err)
+	}
+	if len(book.Asks["100"]) != 1 || book.Asks["100"][0].Qty != 6 {
+		t.Fatalf("asks[100] = %+v, want unchanged qty 6", book.Asks["100"])
+	}
+	if len(book.Bids["100"]) != 1 || book.Bids["100"][0].ID != incoming.ID {
+		t.Fatalf("bids[100] = %+v, want unchanged incoming bid", book.Bids["100"])
+	}
+}
+
+func TestOrderBookRepoApplyCreatesBook(t *testing.T) {
+	repo := NewOrderBookRepo()
+	stock := newStock("BMRI")
+	order := newOrder(stock, domain.OrderSideBuy, "100", 10, time.Now())
+
+	if err := repo.Apply(stock, port.OrderBookChange{Upserts: []domain.Order{order}}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	book, err := repo.Get(stock.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(book.Bids["100"]) != 1 || book.Bids["100"][0].ID != order.ID {
+		t.Fatalf("bids[100] = %+v, want applied order", book.Bids["100"])
+	}
+
+	other := newStock("BBCA")
+	foreign := newOrder(other, domain.OrderSideBuy, "500", 1, time.Now())
+	if err := repo.Apply(stock, port.OrderBookChange{Upserts: []domain.Order{foreign}}); !errors.Is(err, ErrInvalidData) {
+		t.Fatalf("Apply foreign stock err = %v, want ErrInvalidData", err)
+	}
+}
+
+func TestOrderBookRepoSnapshot(t *testing.T) {
+	repo := NewOrderBookRepo()
+	stock := newStock("BMRI")
+	base := time.Now()
+
+	orders := []domain.Order{
+		newOrder(stock, domain.OrderSideBuy, "100", 10, base),
+		newOrder(stock, domain.OrderSideBuy, "102", 20, base),
+		newOrder(stock, domain.OrderSideBuy, "101", 30, base),
+		newOrder(stock, domain.OrderSideSell, "105", 10, base),
+		newOrder(stock, domain.OrderSideSell, "103", 20, base),
+		newOrder(stock, domain.OrderSideSell, "104", 30, base),
+	}
+	for i := range orders {
+		if err := repo.Add(&orders[i]); err != nil {
+			t.Fatalf("Add: %v", err)
+		}
+	}
+
+	bids, asks, err := repo.Snapshot(stock.ID, 2)
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if len(bids) != 2 || bids[0].Price.String() != "102" || bids[1].Price.String() != "101" {
+		t.Fatalf("bids = %+v, want top 2 descending", bids)
+	}
+	if len(asks) != 2 || asks[0].Price.String() != "103" || asks[1].Price.String() != "104" {
+		t.Fatalf("asks = %+v, want top 2 ascending", asks)
+	}
+
+	bids[0].Qty = 999
+	freshBids, _, err := repo.Snapshot(stock.ID, 2)
+	if err != nil {
+		t.Fatalf("Snapshot fresh: %v", err)
+	}
+	if freshBids[0].Qty == 999 {
+		t.Fatalf("Snapshot returned shared order storage")
+	}
+
+	if _, _, err := repo.Snapshot(ulid.Make(), 2); !errors.Is(err, ErrDataNotFound) {
+		t.Fatalf("Snapshot missing err = %v, want ErrDataNotFound", err)
 	}
 }
 

@@ -81,6 +81,19 @@ func (r *orderBookRepo) addLocked(order *domain.Order) error {
 		book = newOrderBook(order.Stock)
 	}
 
+	if err := addOrderToBook(book, order); err != nil {
+		return err
+	}
+
+	r.byStockId[order.Stock.ID] = book
+	return nil
+}
+
+func addOrderToBook(book domain.OrderBook, order *domain.Order) error {
+	if order == nil || !isValidSide(order.Side) {
+		return ErrInvalidData
+	}
+
 	priceKey := order.Price.String()
 	if order.Side == domain.OrderSideBuy {
 		book.Bids[priceKey] = append(book.Bids[priceKey], *order)
@@ -88,7 +101,48 @@ func (r *orderBookRepo) addLocked(order *domain.Order) error {
 		book.Asks[priceKey] = append(book.Asks[priceKey], *order)
 	}
 
-	r.byStockId[order.Stock.ID] = book
+	return nil
+}
+
+// Apply mutates a clone of the book and stores it only when every change
+// succeeds, so readers never observe a partially applied match.
+func (r *orderBookRepo) Apply(stock domain.Stock, change port.OrderBookChange) error {
+	if stock.ID == (ulid.ULID{}) {
+		return ErrInvalidData
+	}
+	if len(change.Removes) == 0 && len(change.Upserts) == 0 {
+		return nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	book, found := r.byStockId[stock.ID]
+	if !found {
+		book = newOrderBook(stock)
+	} else {
+		book = cloneOrderBook(book)
+	}
+
+	for _, orderId := range change.Removes {
+		if !removeOrderLocked(book, orderId) {
+			return ErrDataNotFound
+		}
+	}
+
+	for i := range change.Upserts {
+		order := change.Upserts[i]
+		if order.Stock.ID != stock.ID || order.ID == (ulid.ULID{}) || !isValidSide(order.Side) {
+			return ErrInvalidData
+		}
+
+		removeOrderLocked(book, order.ID)
+		if err := addOrderToBook(book, &order); err != nil {
+			return err
+		}
+	}
+
+	r.byStockId[stock.ID] = book
 	return nil
 }
 
@@ -158,11 +212,8 @@ func (r *orderBookRepo) Update(order *domain.Order) error {
 		return ErrDataNotFound
 	}
 
-	priceKey := order.Price.String()
-	if order.Side == domain.OrderSideBuy {
-		book.Bids[priceKey] = append(book.Bids[priceKey], *order)
-	} else {
-		book.Asks[priceKey] = append(book.Asks[priceKey], *order)
+	if err := addOrderToBook(book, order); err != nil {
+		return err
 	}
 
 	r.byStockId[order.Stock.ID] = book
@@ -191,6 +242,20 @@ func (r *orderBookRepo) BestAsks(stockId ulid.ULID, limit int) ([]domain.Order, 
 	}
 
 	return bestOrders(book.Asks, limit, false), nil
+}
+
+// Snapshot reads bids and asks under one read lock so callers cannot observe a
+// half-applied match between the two sides.
+func (r *orderBookRepo) Snapshot(stockId ulid.ULID, depth int) ([]domain.Order, []domain.Order, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	book, found := r.byStockId[stockId]
+	if !found {
+		return nil, nil, ErrDataNotFound
+	}
+
+	return bestOrders(book.Bids, depth, true), bestOrders(book.Asks, depth, false), nil
 }
 
 func bestOrders(levels map[string][]domain.Order, limit int, descending bool) []domain.Order {
